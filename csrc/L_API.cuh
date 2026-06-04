@@ -11,6 +11,7 @@
  * limitations under the License.
  ***************************************************************************/
 #include <cuda.h>
+#include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <iostream>
@@ -72,4 +73,3 @@ __host__ int InitBF16MatrixTripleBitmap(
     int** TileOffsets_global,  // Global tile offsets
     int& max_high_freq_count,  // Return max high-freq element count
     int& max_full_count);       // Return max non-high-freq element count
-
