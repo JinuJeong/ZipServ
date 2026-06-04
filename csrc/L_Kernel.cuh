@@ -140,7 +140,7 @@ __device__ __forceinline__ void LoadBF16FragWithTripleBitmap_SingleRow(
     const uint64_t* __restrict__ SharedBitmap1,
     const uint64_t* __restrict__ SharedBitmap2,
     const uint64_t* __restrict__ SharedBitmap3,
-    const uint8_t start_exp,
+    const int* __restrict__ top_exponents,
     int& high_freq_start,  // Use reference, support accumulation
     int& full_start,       // Use reference, support accumulation
     int row_idx,           // Current row index being loaded (0-3)
@@ -170,8 +170,8 @@ __device__ __forceinline__ void LoadBF16FragWithTripleBitmap_SingleRow(
                                ((bitmap1 >> pos2) & 1ULL);
 
             // Precompute exponent bits
-            uint16_t exponent_bits_pos1 = (start_exp + code_pos1) << 7;
-            uint16_t exponent_bits_pos2 = (start_exp + code_pos2) << 7;
+            uint16_t exponent_bits_pos1 = (top_exponents[code_pos1 - 1]) << 7;
+            uint16_t exponent_bits_pos2 = (top_exponents[code_pos2 - 1]) << 7;
             
             // Calculate bitmasks
             uint64_t mask_before_pos1 = (1ULL << pos1) - 1;
@@ -267,7 +267,7 @@ __device__ __forceinline__ void LoadNextSlice(
     const uint64_t* __restrict__ SharedBitmap1_Warp,
     const uint64_t* __restrict__ SharedBitmap2_Warp,
     const uint64_t* __restrict__ SharedBitmap3_Warp,
-    const uint8_t start_exp,
+    const int* __restrict__ top_exponents,
     int& high_freq_start,
     int& full_start,
     __nv_bfloat16* __restrict__ SharedMemoryPTR,
@@ -282,7 +282,7 @@ __device__ __forceinline__ void LoadNextSlice(
     // Load A fragment
     LoadBF16FragWithTripleBitmap_SingleRow(
         a_write[0], SharedSignMantissa, SharedFullValues,
-        SharedBitmap1_Warp, SharedBitmap2_Warp, SharedBitmap3_Warp, start_exp,
+        SharedBitmap1_Warp, SharedBitmap2_Warp, SharedBitmap3_Warp, top_exponents,
         high_freq_start, full_start, next_slice_id % 4);
     
     // Load B fragment
@@ -302,7 +302,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Fast(
     const int* TileOffsets_Global,
     const int max_high_freq_count,
     const int max_full_count,
-    const uint8_t start_exp,
+    const int* top_exponents,
     const __nv_bfloat16* B,
     __nv_bfloat16* Output,
     const int M_Global,
@@ -431,7 +431,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Fast(
     LoadNextSlice<TilingConfig>(
         a, b, smem_SignMantissa, smem_FullValues,
         smem_Bitmap1_Warp, smem_Bitmap2_Warp, smem_Bitmap3_Warp,
-        start_exp, current_high_freq_start, current_full_start,
+        top_exponents, current_high_freq_start, current_full_start,
         smem_B, warp_start_row, warp_start_col, 0);
     
     #pragma unroll(1)
@@ -505,7 +505,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Fast(
         LoadNextSlice<TilingConfig>(
             a, b, smem_read_SignMantissa, smem_read_FullValues,
             smem_read_Bitmap1_Warp, smem_read_Bitmap2_Warp, smem_read_Bitmap3_Warp, 
-            start_exp, current_high_freq_start, current_full_start,
+            top_exponents, current_high_freq_start, current_full_start,
             smem_read_B_PTR, warp_start_row, warp_start_col, 1);
             
         // 2. Compute tile 0
@@ -515,7 +515,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Fast(
         LoadNextSlice<TilingConfig>(
             a, b, smem_read_SignMantissa, smem_read_FullValues,
             smem_read_Bitmap1_Warp, smem_read_Bitmap2_Warp, smem_read_Bitmap3_Warp, 
-            start_exp, current_high_freq_start, current_full_start,
+            top_exponents, current_high_freq_start, current_full_start,
             smem_read_B_PTR, warp_start_row, warp_start_col, 2);
         
         // 4. Compute tile 1
@@ -525,7 +525,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Fast(
         LoadNextSlice<TilingConfig>(
             a, b, smem_read_SignMantissa, smem_read_FullValues,
             smem_read_Bitmap1_Warp, smem_read_Bitmap2_Warp, smem_read_Bitmap3_Warp, 
-            start_exp, current_high_freq_start, current_full_start,
+            top_exponents, current_high_freq_start, current_full_start,
             smem_read_B_PTR, warp_start_row, warp_start_col, 3);
         
         // 6. Compute tile 2
@@ -550,7 +550,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Fast(
             LoadNextSlice<TilingConfig>(
                 a, b, smem_write_SignMantissa, smem_write_FullValues,
                 smem_write_Bitmap1_Warp, smem_write_Bitmap2_Warp, smem_write_Bitmap3_Warp, 
-                start_exp, current_high_freq_start, current_full_start,
+                top_exponents, current_high_freq_start, current_full_start,
                 smem_write_B_PTR, warp_start_row, warp_start_col, 0);
         }
     }
@@ -582,7 +582,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Safe(
     const int* TileOffsets_Global,
     const int max_high_freq_count,
     const int max_full_count,
-    const uint8_t start_exp,
+    const int* top_exponents,
     const __nv_bfloat16* B,
     __nv_bfloat16* Output,
     const int M_Global,
@@ -735,7 +735,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Safe(
     LoadNextSlice<TilingConfig>(
         a, b, smem_SignMantissa, smem_FullValues,
         smem_Bitmap1_Warp, smem_Bitmap2_Warp, smem_Bitmap3_Warp,
-        start_exp, current_high_freq_start, current_full_start,
+        top_exponents, current_high_freq_start, current_full_start,
         smem_B, warp_start_row, warp_start_col, 0);
     
     #pragma unroll(1)
@@ -807,7 +807,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Safe(
         LoadNextSlice<TilingConfig>(
             a, b, smem_read_SignMantissa, smem_read_FullValues,
             smem_read_Bitmap1_Warp, smem_read_Bitmap2_Warp, smem_read_Bitmap3_Warp, 
-            start_exp, current_high_freq_start, current_full_start,
+            top_exponents, current_high_freq_start, current_full_start,
             smem_read_B_PTR, warp_start_row, warp_start_col, 1);
             
         // 2. Compute tile 0
@@ -817,7 +817,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Safe(
         LoadNextSlice<TilingConfig>(
             a, b, smem_read_SignMantissa, smem_read_FullValues,
             smem_read_Bitmap1_Warp, smem_read_Bitmap2_Warp, smem_read_Bitmap3_Warp, 
-            start_exp, current_high_freq_start, current_full_start,
+            top_exponents, current_high_freq_start, current_full_start,
             smem_read_B_PTR, warp_start_row, warp_start_col, 2);
         
         // 4. Compute tile 1
@@ -827,7 +827,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Safe(
         LoadNextSlice<TilingConfig>(
             a, b, smem_read_SignMantissa, smem_read_FullValues,
             smem_read_Bitmap1_Warp, smem_read_Bitmap2_Warp, smem_read_Bitmap3_Warp, 
-            start_exp, current_high_freq_start, current_full_start,
+            top_exponents, current_high_freq_start, current_full_start,
             smem_read_B_PTR, warp_start_row, warp_start_col, 3);
         
         // 6. Compute tile 2
@@ -852,7 +852,7 @@ __global__ void BF16TripleBitmap_MM_Kernel_Safe(
             LoadNextSlice<TilingConfig>(
                 a, b, smem_write_SignMantissa, smem_write_FullValues,
                 smem_write_Bitmap1_Warp, smem_write_Bitmap2_Warp, smem_write_Bitmap3_Warp, 
-                start_exp, current_high_freq_start, current_full_start,
+                top_exponents, current_high_freq_start, current_full_start,
                 smem_write_B_PTR, warp_start_row, warp_start_col, 0);
         }
     }
@@ -990,7 +990,7 @@ __device__ __forceinline__ void DecompressMedianTileToSharedMemory(
     const uint64_t* __restrict__ SharedBitmap3_Warp,
     int high_freq_start,
     int full_start,
-    int start_exp,
+    const int* __restrict__ top_exponents,
     __nv_bfloat16 (*smem_output)[64 + PADDING_SHARED_MEM_FOR_DECOMP],  // Pointer to the shared memory output buffer
     int warp_idx)                // Current warp index (0-3)
 {
@@ -1024,8 +1024,8 @@ __device__ __forceinline__ void DecompressMedianTileToSharedMemory(
                                ((bitmap1 >> pos2) & 1ULL);
 
             // Precompute exponent bits
-            uint16_t exponent_bits_pos1 = (start_exp + code_pos1) << 7;
-            uint16_t exponent_bits_pos2 = (start_exp + code_pos2) << 7;
+            uint16_t exponent_bits_pos1 = (top_exponents[code_pos1 - 1]) << 7;
+            uint16_t exponent_bits_pos2 = (top_exponents[code_pos2 - 1]) << 7;
             
             // Count high-frequency elements before pos1 (single popcount)
             uint64_t mask_before_pos1 = (1ULL << pos1) - 1;
@@ -1119,7 +1119,7 @@ __global__ void BF16TripleBitmap_Decompress_Kernel(
     // const  __nv_bfloat16* __restrict__ TopExponents,    // Top 7 high-frequency exponents
     const int max_high_freq_count,        // Max high-frequency element count
     const int max_full_count,             // Max low-frequency element count
-    const uint8_t start_exp,
+    const int* __restrict__ top_exponents,
     __nv_bfloat16* Output,                // Output matrix
     const int M_Global,                   // Global M dimension
     const int K_Global)                   // Global K dimension
@@ -1224,7 +1224,7 @@ __global__ void BF16TripleBitmap_Decompress_Kernel(
     DecompressMedianTileToSharedMemory<TilingConfig>(
         smem_SignMantissa, smem_FullValues,
         smem_bitmap1_warp, smem_bitmap2_warp, smem_bitmap3_warp,
-        warp_high_freq_start, warp_full_start, start_exp,
+        warp_high_freq_start, warp_full_start, top_exponents,
         smem_output_2d, warpId);
     
     // // Wait for all warps to finish decompression

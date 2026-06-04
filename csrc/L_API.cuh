@@ -28,7 +28,7 @@ cudaError_t BF16TripleBitmap_MM_API(
     const int* TileOffsets_Global,        // Global tile offsets
     const int max_high_freq_count,        // Max high-frequency element count
     const int max_full_count,             // Max low-frequency element count
-    const uint8_t start_exp,
+    const int* top_exponents,
     const __nv_bfloat16* B,               // Matrix B
     __nv_bfloat16* C,                     // Output matrix
     const int M_Global,                   // Global M dimension
@@ -45,9 +45,9 @@ cudaError_t BF16TripleBitmap_Decompress_API(
     const uint64_t* Bitmap3,
     const int* TileOffsets_Median,
     const int* TileOffsets_Global,
+    const int* top_exponents,
     const int max_high_freq_count,
     const int max_full_count,
-    const uint8_t start_exp,
     __nv_bfloat16* Output,
     const int M_Global,
     const int K_Global);

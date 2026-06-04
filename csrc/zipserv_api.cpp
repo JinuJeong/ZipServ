@@ -44,7 +44,7 @@ void bf16_matmul(
     const torch::Tensor& tile_offsets_global, // int32, CUDA
     int max_high_freq_count,
     int max_full_count,
-    uint8_t start_exp,
+    const torch::Tensor& top_exponents,         // int32, CUDA, 7 elements
     const torch::Tensor& B,                   // bfloat16, CUDA
     torch::Tensor C,                          // bfloat16, CUDA (out)
     py::object reduction_workspace_obj,         // bfloat16, CUDA or None
@@ -62,6 +62,9 @@ void bf16_matmul(
   check_cuda_dtype(tile_offsets_global, "tile_offsets_global", at::ScalarType::Int);
   check_cuda_dtype(B,                   "B",                   at::ScalarType::BFloat16);
   check_cuda_dtype(C,                   "C",                   at::ScalarType::BFloat16);
+  check_cuda_dtype(top_exponents,       "top_exponents",       at::ScalarType::Int);
+  TORCH_CHECK(top_exponents.numel() == 7,
+              "top_exponents must contain exactly 7 elements");
 
   __nv_bfloat16* reduction_ptr = nullptr;
   if (!reduction_workspace_obj.is_none()) {
@@ -88,7 +91,7 @@ void bf16_matmul(
       tile_offsets_global.data_ptr<int32_t>(),
       max_high_freq_count,
       max_full_count,
-      start_exp,
+      top_exponents.data_ptr<int32_t>(),
       reinterpret_cast<const __nv_bfloat16*>(B.data_ptr<c10::BFloat16>()),
       reinterpret_cast<__nv_bfloat16*>(C.data_ptr<c10::BFloat16>()),
       M_Global,
@@ -116,7 +119,7 @@ void bf16_decompress(
     const torch::Tensor& tile_offsets_global, // int32, CUDA
     int max_high_freq_count,
     int max_full_count,
-    uint8_t start_exp,
+    const torch::Tensor& top_exponents,         // int32, CUDA, 7 elements
     torch::Tensor output,                       // bfloat16, CUDA (out)
     int M_Global,
     int K_Global)
@@ -129,6 +132,9 @@ void bf16_decompress(
   check_cuda_dtype(tile_offsets_median, "tile_offsets_median", at::ScalarType::Int);
   check_cuda_dtype(tile_offsets_global, "tile_offsets_global", at::ScalarType::Int);
   check_cuda_dtype(output,              "output",              at::ScalarType::BFloat16);
+  check_cuda_dtype(top_exponents,       "top_exponents",       at::ScalarType::Int);
+  TORCH_CHECK(top_exponents.numel() == 7,
+              "top_exponents must contain exactly 7 elements");
 
   cudaStream_t stream = c10::cuda::getCurrentCUDAStream().stream();
 
@@ -141,9 +147,9 @@ void bf16_decompress(
       reinterpret_cast<const uint64_t*>(bitmap3.data_ptr<int64_t>()),
       tile_offsets_median.data_ptr<int32_t>(),
       tile_offsets_global.data_ptr<int32_t>(),
+      top_exponents.data_ptr<int32_t>(),
       max_high_freq_count,
       max_full_count,
-      start_exp,
       reinterpret_cast<__nv_bfloat16*>(output.data_ptr<c10::BFloat16>()),
       M_Global,
       K_Global);
@@ -310,7 +316,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("tile_offsets_global"),
           py::arg("max_high_freq_count"),
           py::arg("max_full_count"),
-          py::arg("start_exp"),
+           py::arg("top_exponents"),
           py::arg("B"),
           py::arg("C"),
           py::arg("reduction_workspace") = py::none(),
@@ -330,7 +336,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("tile_offsets_global"),
           py::arg("max_high_freq_count"),
           py::arg("max_full_count"),
-          py::arg("start_exp"),
+           py::arg("top_exponents"),
           py::arg("output"),
           py::arg("M"),
           py::arg("K"));

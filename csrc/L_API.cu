@@ -24,7 +24,7 @@ cudaError_t LaunchKernelWithConfig_4Param(
     const uint64_t* Bitmap1, const uint64_t* Bitmap2, const uint64_t* Bitmap3,
     const int* TileOffsets_Median, const int* TileOffsets_Global,
     const int max_high_freq_count, const int max_full_count,
-    const uint8_t start_exp, const __nv_bfloat16* B, __nv_bfloat16* OutputPTR,
+    const int* top_exponents, const __nv_bfloat16* B, __nv_bfloat16* OutputPTR,
     const int M_Global, const int N_Global, const int K_Global, int Split_K)
 {
     using ConfigType = TilingConfigBF16TripleBitmap<4, 1, 1, 1>;
@@ -49,7 +49,7 @@ cudaError_t LaunchKernelWithConfig_4Param(
         BF16TripleBitmap_MM_Kernel_Fast<ConfigType><<<GridDim, BlockDim, SHMEM_SZ, stream>>>(
             SignMantissa, CompressedFull, Bitmap1, Bitmap2, Bitmap3,
             TileOffsets_Median, TileOffsets_Global,
-            max_high_freq_count, max_full_count, start_exp, B, OutputPTR, 
+            max_high_freq_count, max_full_count, top_exponents, B, OutputPTR, 
             M_Global, N_Global, K_Global, Split_K);
     } else {
         // When N is not a multiple of TILE_N, use the Safe version
@@ -58,7 +58,7 @@ cudaError_t LaunchKernelWithConfig_4Param(
         BF16TripleBitmap_MM_Kernel_Safe<ConfigType><<<GridDim, BlockDim, SHMEM_SZ, stream>>>(
             SignMantissa, CompressedFull, Bitmap1, Bitmap2, Bitmap3,
             TileOffsets_Median, TileOffsets_Global,
-            max_high_freq_count, max_full_count, start_exp, B, OutputPTR, 
+            max_high_freq_count, max_full_count, top_exponents, B, OutputPTR, 
             M_Global, N_Global, K_Global, Split_K);
     }
     
@@ -72,7 +72,7 @@ cudaError_t LaunchKernelWithConfig_3Param(
     const uint64_t* Bitmap1, const uint64_t* Bitmap2, const uint64_t* Bitmap3,
     const int* TileOffsets_Median, const int* TileOffsets_Global,
     const int max_high_freq_count, const int max_full_count,
-    const uint8_t start_exp, const __nv_bfloat16* B, __nv_bfloat16* OutputPTR,
+    const int* top_exponents, const __nv_bfloat16* B, __nv_bfloat16* OutputPTR,
     const int M_Global, const int N_Global, const int K_Global, int Split_K)
 {
     using ConfigType = TilingConfigBF16TripleBitmap<4, 1, BLOCK_COL_WARPS>;
@@ -97,7 +97,7 @@ cudaError_t LaunchKernelWithConfig_3Param(
         BF16TripleBitmap_MM_Kernel_Fast<ConfigType><<<GridDim, BlockDim, SHMEM_SZ, stream>>>(
             SignMantissa, CompressedFull, Bitmap1, Bitmap2, Bitmap3,
             TileOffsets_Median, TileOffsets_Global,
-            max_high_freq_count, max_full_count, start_exp, B, OutputPTR, 
+            max_high_freq_count, max_full_count, top_exponents, B, OutputPTR, 
             M_Global, N_Global, K_Global, Split_K);
     } else {
         // When N is not a multiple of TILE_N, use the Safe version
@@ -106,7 +106,7 @@ cudaError_t LaunchKernelWithConfig_3Param(
         BF16TripleBitmap_MM_Kernel_Safe<ConfigType><<<GridDim, BlockDim, SHMEM_SZ, stream>>>(
             SignMantissa, CompressedFull, Bitmap1, Bitmap2, Bitmap3,
             TileOffsets_Median, TileOffsets_Global,
-            max_high_freq_count, max_full_count, start_exp, B, OutputPTR, 
+            max_high_freq_count, max_full_count, top_exponents, B, OutputPTR, 
             M_Global, N_Global, K_Global, Split_K);
     }
     
@@ -124,7 +124,7 @@ cudaError_t BF16TripleBitmap_MM_API(
     const int* TileOffsets_Global,        
     const int max_high_freq_count,        
     const int max_full_count,             
-    const uint8_t start_exp,
+    const int* top_exponents,
     const __nv_bfloat16* B,               
     __nv_bfloat16* C,                     
     const int M_Global,                   
@@ -146,14 +146,14 @@ cudaError_t BF16TripleBitmap_MM_API(
         // === Special case: Use 4-parameter configuration ===
         error = LaunchKernelWithConfig_4Param(stream, SignMantissa, CompressedFull,
             Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-            max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+            max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
             M_Global, N_Global, K_Global, Split_K);
     }
     else if (N_Global > 128) {
         // Greater than 128, use fixed 3-parameter configuration BLOCK_COL_WARPS=8 (TILE_N=128)
         error = LaunchKernelWithConfig_3Param<8>(stream, SignMantissa, CompressedFull,
             Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-            max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+            max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
             M_Global, N_Global, K_Global, Split_K);
     }
     else {
@@ -164,50 +164,50 @@ cudaError_t BF16TripleBitmap_MM_API(
             case 1:
                 error = LaunchKernelWithConfig_3Param<1>(stream, SignMantissa, CompressedFull,
                     Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-                    max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+                    max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
                     M_Global, N_Global, K_Global, Split_K);
                 break;
             case 2:
                 error = LaunchKernelWithConfig_3Param<2>(stream, SignMantissa, CompressedFull,
                     Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-                    max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+                    max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
                     M_Global, N_Global, K_Global, Split_K);
                 break;
             case 3:
                 error = LaunchKernelWithConfig_3Param<3>(stream, SignMantissa, CompressedFull,
                     Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-                    max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+                    max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
                     M_Global, N_Global, K_Global, Split_K);
                 break;
             case 4:
                 error = LaunchKernelWithConfig_3Param<4>(stream, SignMantissa, CompressedFull,
                     Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-                    max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+                    max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
                     M_Global, N_Global, K_Global, Split_K);
                 break;
             case 5:
                 error = LaunchKernelWithConfig_3Param<5>(stream, SignMantissa, CompressedFull,
                     Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-                    max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+                    max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
                     M_Global, N_Global, K_Global, Split_K);
                 break;
             case 6:
                 error = LaunchKernelWithConfig_3Param<6>(stream, SignMantissa, CompressedFull,
                     Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-                    max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+                    max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
                     M_Global, N_Global, K_Global, Split_K);
                 break;
             case 7:
                 error = LaunchKernelWithConfig_3Param<7>(stream, SignMantissa, CompressedFull,
                     Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-                    max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+                    max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
                     M_Global, N_Global, K_Global, Split_K);
                 break;
             case 8:
             default:
                 error = LaunchKernelWithConfig_3Param<8>(stream, SignMantissa, CompressedFull,
                     Bitmap1, Bitmap2, Bitmap3, TileOffsets_Median, TileOffsets_Global,
-                    max_high_freq_count, max_full_count, start_exp, B, OutputPTR,
+                    max_high_freq_count, max_full_count, top_exponents, B, OutputPTR,
                     M_Global, N_Global, K_Global, Split_K);
                 break;
         }
@@ -238,10 +238,10 @@ cudaError_t BF16TripleBitmap_Decompress_API(
     /*const int* TileOffsets,*/
     const int* TileOffsets_Median,
     const int* TileOffsets_Global,
-    /*const __nv_bfloat16* TopExponents,*/
+    /*const __nv_bfloat16* TopExpononts,*/
+    const int* top_exponents,
     const int max_high_freq_count,
     const int max_full_count,
-    const uint8_t start_exp,
     __nv_bfloat16* Output,
     const int M_Global,
     const int K_Global)
@@ -301,7 +301,7 @@ cudaError_t BF16TripleBitmap_Decompress_API(
     BF16TripleBitmap_Decompress_Kernel<Config><<<GridDim, BlockDim, SHMEM_SZ, stream>>>(
         SignMantissa, CompressedFull, Bitmap1, Bitmap2, Bitmap3,
         /*TileOffsets,*/ TileOffsets_Median, TileOffsets_Global, /*TopExponents,*/
-        max_high_freq_count, max_full_count, start_exp,
+        max_high_freq_count, max_full_count, top_exponents,
         Output, M_Global, K_Global);
     
     return cudaGetLastError();

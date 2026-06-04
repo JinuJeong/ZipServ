@@ -6,8 +6,11 @@ from zipserv.kerenl_ops import (
     init_bf16_matrix_triple_bitmap,
 )
 
+from zipserv.api import CompressedTensor, compress
+
 __all__ = [
     "bf16_matmul",
     "bf16_decompress",
-    "init_bf16_matrix_triple_bitmap",
+    "CompressedTensor",
+    "compress",
 ]
