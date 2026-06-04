@@ -1108,21 +1108,21 @@ __device__ __forceinline__ void DecompressMedianTileToSharedMemory(
 // Main decompression kernel
 template<typename TilingConfig>
 __global__ void BF16TripleBitmap_Decompress_Kernel(
-    const  uint8_t* __restrict__ SignMantissa,          // Sign bits + mantissa for high-frequency elements
-    const  __nv_bfloat16* __restrict__ CompressedFull,  // Full BF16 values for low-frequency elements
-    const  uint64_t* __restrict__ Bitmap1,              // First bitmap
-    const  uint64_t* __restrict__ Bitmap2,              // Second bitmap
-    const  uint64_t* __restrict__ Bitmap3,              // Third bitmap
-    // const  int* __restrict__ TileOffsets,               // Small tile offsets
-    const  int* __restrict__ TileOffsets_Median,        // Medium tile offsets
-    const  int* __restrict__ TileOffsets_Global,        // Global tile offsets
-    // const  __nv_bfloat16* __restrict__ TopExponents,    // Top 7 high-frequency exponents
-    const int max_high_freq_count,        // Max high-frequency element count
-    const int max_full_count,             // Max low-frequency element count
+    const  uint8_t* __restrict__ SignMantissa,
+    const  __nv_bfloat16* __restrict__ CompressedFull,
+    const  uint64_t* __restrict__ Bitmap1,
+    const  uint64_t* __restrict__ Bitmap2,
+    const  uint64_t* __restrict__ Bitmap3,
+    const  int* __restrict__ TileOffsets_Median,
+    const  int* __restrict__ TileOffsets_Global,
+    const int max_high_freq_count,
+    const int max_full_count,
     const int* __restrict__ top_exponents,
-    __nv_bfloat16* Output,                // Output matrix
-    const int M_Global,                   // Global M dimension
-    const int K_Global)                   // Global K dimension
+    __nv_bfloat16* Output,
+    const int M_Global,
+    const int K_Global,
+    uint64_t* __restrict__ profiling_buffer = nullptr,
+    int profiling_enabled = 0)
 {
     // Compute the global tile this block is processing
     const int global_tile_m = blockIdx.y;
@@ -1140,6 +1140,11 @@ __global__ void BF16TripleBitmap_Decompress_Kernel(
     // Warp information
     const int warpId = threadIdx.x / WARP_SIZE;
     const int laneId = threadIdx.x % WARP_SIZE;
+
+    uint64_t t0 = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0;
+    if (profiling_enabled && threadIdx.x == 0) {
+        t0 = clock64();
+    }
     
     // Shared memory allocation
     extern __shared__ __align__(128) __nv_bfloat16 smem_buffer[];
@@ -1202,6 +1207,10 @@ __global__ void BF16TripleBitmap_Decompress_Kernel(
     cp_async_group_commit();
     cp_async_wait_group<0>();
     __syncthreads();
+
+    if (profiling_enabled && threadIdx.x == 0) {
+        t1 = clock64();
+    }
     
     // Get the median tile data offset for the current warp
     const int median_tile_idx = global_tile_idx * 4 + warpId;
@@ -1213,30 +1222,44 @@ __global__ void BF16TripleBitmap_Decompress_Kernel(
     int warp_high_freq_start = median_offset_ptr[0];
     int warp_full_start = median_offset_ptr[1];
     
-    // // Current warp position in the shared memory bitmap
-    // // Each median tile corresponds to 2 bitmap rows (16/8=2)
+    // Current warp position in the shared memory bitmap
+    // Each median tile corresponds to 2 bitmap rows (16/8=2)
     uint64_t* smem_bitmap1_warp = smem_Bitmap1 + warpId * 2 * 8; // Each warp has 2 rows, 8 small tiles per row
     uint64_t* smem_bitmap2_warp = smem_Bitmap2 + warpId * 2 * 8;
     uint64_t* smem_bitmap3_warp = smem_Bitmap3 + warpId * 2 * 8;
     __nv_bfloat16(*smem_output_2d)[64 + PADDING_SHARED_MEM_FOR_DECOMP] =
         reinterpret_cast<__nv_bfloat16(*)[64 + PADDING_SHARED_MEM_FOR_DECOMP]>(smem_output);
-    // // Decompress into shared memory
+
+    if (profiling_enabled && threadIdx.x == 0) {
+        t2 = clock64();
+    }
+
     DecompressMedianTileToSharedMemory<TilingConfig>(
         smem_SignMantissa, smem_FullValues,
         smem_bitmap1_warp, smem_bitmap2_warp, smem_bitmap3_warp,
         warp_high_freq_start, warp_full_start, top_exponents,
         smem_output_2d, warpId);
     
-    // // Wait for all warps to finish decompression
+    // Wait for all warps to finish decompression
     __syncthreads();
+
+    if (profiling_enabled && threadIdx.x == 0) {
+        t3 = clock64();
+    }
     
     // Vectorized write-back to global memory
     VectorizedWriteToGlobalMemory(
         smem_output_2d, Output, global_start_m, global_start_k, M_Global, K_Global);
-    // VectorizedWriteToGlobalMemory_128(
-    //     smem_output_2d, Output, global_start_m, global_start_k, M_Global, K_Global);
-    // VectorizedWriteToGlobalMemory_256(
-    //     smem_output_2d, Output, global_start_m, global_start_k, M_Global, K_Global);
+
+    if (profiling_enabled && threadIdx.x == 0) {
+        t4 = clock64();
+        int block_id = blockIdx.y * gridDim.x + blockIdx.x;
+        profiling_buffer[block_id * 5 + 0] = t0;
+        profiling_buffer[block_id * 5 + 1] = t1;
+        profiling_buffer[block_id * 5 + 2] = t2;
+        profiling_buffer[block_id * 5 + 3] = t3;
+        profiling_buffer[block_id * 5 + 4] = t4;
+    }
 }
 
 

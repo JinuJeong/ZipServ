@@ -50,7 +50,9 @@ cudaError_t BF16TripleBitmap_Decompress_API(
     const int max_full_count,
     __nv_bfloat16* Output,
     const int M_Global,
-    const int K_Global);
+    const int K_Global,
+    uint64_t* profiling_buffer = nullptr,
+    int profiling_enabled = 0);
 // CPU function for BF16 matrix compression initialization
 __host__ int InitBF16MatrixTripleBitmap(
     __nv_bfloat16* A_bf16,

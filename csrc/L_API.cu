@@ -244,7 +244,9 @@ cudaError_t BF16TripleBitmap_Decompress_API(
     const int max_full_count,
     __nv_bfloat16* Output,
     const int M_Global,
-    const int K_Global)
+    const int K_Global,
+    uint64_t* profiling_buffer,
+    int profiling_enabled)
 {
     // Validate input parameters
     if (M_Global % 64 != 0 || K_Global % 64 != 0) {
@@ -302,7 +304,8 @@ cudaError_t BF16TripleBitmap_Decompress_API(
         SignMantissa, CompressedFull, Bitmap1, Bitmap2, Bitmap3,
         /*TileOffsets,*/ TileOffsets_Median, TileOffsets_Global, /*TopExponents,*/
         max_high_freq_count, max_full_count, top_exponents,
-        Output, M_Global, K_Global);
+        Output, M_Global, K_Global,
+        profiling_buffer, profiling_enabled);
     
     return cudaGetLastError();
 }

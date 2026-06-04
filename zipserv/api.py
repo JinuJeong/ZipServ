@@ -171,8 +171,9 @@ class CompressedTensor:
         return self
 
     def decompress(
-        self, device: str = "cuda", output: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        self, device: str = "cuda", output: torch.Tensor | None = None,
+        profile: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Reconstruct the original BF16 matrix on *device*.
 
         Parameters
@@ -183,11 +184,16 @@ class CompressedTensor:
             Optional pre-allocated output buffer of shape ``orig_shape`` and
             dtype ``torch.bfloat16`` on *device*. If not given, a new tensor is
             allocated.
+        profile : bool
+            If ``True``, also return a ``torch.int64`` tensor of shape
+            ``[num_blocks, 5]`` containing per-block ``clock64()`` timestamps
+            at the phase boundaries.
 
         Returns
         -------
-        torch.Tensor
-            Reconstructed ``bfloat16`` tensor of shape ``orig_shape``.
+        torch.Tensor or tuple
+            Reconstructed ``bfloat16`` tensor; if ``profile=True`` a
+            ``(output, profile_buffer)`` tuple.
         """
         import torch as _torch
         target = _torch.empty(1, device=device).device
@@ -210,7 +216,6 @@ class CompressedTensor:
         if output is None:
             output = _torch.empty((M, K), dtype=_torch.bfloat16, device=device)
         else:
-            # sanity checks
             if output.shape != (M, K) or output.dtype != _torch.bfloat16:
                 raise ValueError(
                     f"output shape/dtype mismatch: expected ({M}, {K}), "
@@ -220,6 +225,15 @@ class CompressedTensor:
                 raise ValueError(
                     f"output device mismatch: expected {target}, got {output.device}"
                 )
+
+        profile_buffer = None
+        if profile:
+            num_tiles_m = M // 64
+            num_tiles_k = K // 64
+            num_blocks = num_tiles_m * num_tiles_k
+            profile_buffer = _torch.empty(
+                (num_blocks, 5), dtype=_torch.int64, device=device
+            )
 
         zipserv.kerenl_ops.bf16_decompress(
             self.sign_mantissa,
@@ -235,7 +249,10 @@ class CompressedTensor:
             output,
             M,
             K,
+            profile_buffer,
         )
+        if profile:
+            return output, profile_buffer
         return output
 
 

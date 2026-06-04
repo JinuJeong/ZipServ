@@ -110,19 +110,20 @@ void bf16_matmul(
 // 2. BF16 Triple Bitmap Decompress
 // ------------------------------------------------------------------
 void bf16_decompress(
-    const torch::Tensor& sign_mantissa,       // uint8, CUDA
-    const torch::Tensor& compressed_full,     // bfloat16, CUDA
-    const torch::Tensor& bitmap1,             // int64, CUDA
-    const torch::Tensor& bitmap2,             // int64, CUDA
-    const torch::Tensor& bitmap3,             // int64, CUDA
-    const torch::Tensor& tile_offsets_median, // int32, CUDA
-    const torch::Tensor& tile_offsets_global, // int32, CUDA
+    const torch::Tensor& sign_mantissa,
+    const torch::Tensor& compressed_full,
+    const torch::Tensor& bitmap1,
+    const torch::Tensor& bitmap2,
+    const torch::Tensor& bitmap3,
+    const torch::Tensor& tile_offsets_median,
+    const torch::Tensor& tile_offsets_global,
     int max_high_freq_count,
     int max_full_count,
-    const torch::Tensor& top_exponents,         // int32, CUDA, 7 elements
-    torch::Tensor output,                       // bfloat16, CUDA (out)
+    const torch::Tensor& top_exponents,
+    torch::Tensor output,
     int M_Global,
-    int K_Global)
+    int K_Global,
+    std::optional<torch::Tensor> profile_buffer = std::nullopt)
 {
   check_cuda_dtype(sign_mantissa,       "sign_mantissa",       at::ScalarType::Byte);
   check_cuda_dtype(compressed_full,     "compressed_full",     at::ScalarType::BFloat16);
@@ -138,6 +139,15 @@ void bf16_decompress(
 
   cudaStream_t stream = c10::cuda::getCurrentCUDAStream().stream();
 
+  uint64_t* profile_ptr = nullptr;
+  int profile_enabled = 0;
+  if (profile_buffer.has_value()) {
+    auto buf = profile_buffer.value();
+    check_cuda_dtype(buf, "profile_buffer", at::ScalarType::Long);
+    profile_ptr = reinterpret_cast<uint64_t*>(buf.data_ptr<int64_t>());
+    profile_enabled = 1;
+  }
+
   cudaError_t err = BF16TripleBitmap_Decompress_API(
       stream,
       sign_mantissa.data_ptr<uint8_t>(),
@@ -152,7 +162,9 @@ void bf16_decompress(
       max_full_count,
       reinterpret_cast<__nv_bfloat16*>(output.data_ptr<c10::BFloat16>()),
       M_Global,
-      K_Global);
+      K_Global,
+      profile_ptr,
+      profile_enabled);
 
   if (err != cudaSuccess) {
     throw std::runtime_error(
@@ -339,7 +351,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
            py::arg("top_exponents"),
           py::arg("output"),
           py::arg("M"),
-          py::arg("K"));
+          py::arg("K"),
+          py::arg("profile_buffer") = py::none());
 
   m.def("init_bf16_matrix_triple_bitmap", &init_bf16_matrix_triple_bitmap,
           "Initialize BF16 Triple Bitmap Compression on CPU",
